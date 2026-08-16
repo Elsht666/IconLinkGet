@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="粘贴网址，一键提取网站 favicon 图标地址，支持复制。Cloudflare Pages 同域代理，服务端抓取解析">
+<title>网站图标地址提取工具</title>
+<style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+        --fg: #0f172a;
+        --fg-muted: #64748b;
+        --fg-faint: #94a3b8;
+        --border: #e2e8f0;
+        --card: #ffffff;
+        --bg: #f4f6fb;
+        --accent: #4f6ef7;
+        --accent-deep: #3b5bdb;
+        --accent-soft: rgba(79, 110, 247, .14);
+        --code-bg: #0f172a;
+        --code-fg: #cbd5e1;
+        --danger-bg: #fef2f2;
+        --danger-border: #fecaca;
+        --danger-fg: #b91c1c;
+        --ok: #059669;
+        --radius-lg: 16px;
+        --radius-md: 12px;
+        --radius-sm: 10px;
+        --shadow-card: 0 1px 2px rgba(15, 23, 42, .05), 0 12px 32px -12px rgba(15, 23, 42, .18);
+    }
+
+    html { -webkit-text-size-adjust: 100%; }
+
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                     "Hiragino Sans GB", "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+        background: var(--bg);
+        color: var(--fg);
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        padding: clamp(32px, 6vw, 64px) 16px;
+        position: relative;
+        overflow-x: hidden;
+    }
+
+    /* 背景装饰光斑 */
+    body::before, body::after {
+        content: "";
+        position: fixed;
+        z-index: -1;
+        border-radius: 50%;
+        filter: blur(80px);
+        opacity: .55;
+        pointer-events: none;
+    }
+    body::before {
+        width: 480px; height: 480px;
+        background: rgba(79, 110, 247, .16);
+        top: -160px; right: -120px;
+    }
+    body::after {
+        width: 420px; height: 420px;
+        background: rgba(129, 140, 248, .14);
+        bottom: -140px; left: -120px;
+    }
+
+    .container { width: 100%; max-width: 620px; }
+
+    header { text-align: center; margin-bottom: 32px; }
+    header h1 {
+        font-size: clamp(22px, 4.5vw, 28px);
+        font-weight: 800;
+        letter-spacing: -.5px;
+        background: linear-gradient(120deg, #0f172a 30%, var(--accent-deep));
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    header p {
+        font-size: 14px;
+        color: var(--fg-muted);
+        margin-top: 12px;
+        display: inline-block;
+        padding: 6px 16px;
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, .05);
+    }
+
+    .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        padding: 22px;
+        box-shadow: var(--shadow-card);
+    }
+
+    .input-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    #urlInput {
+        flex: 1 1 220px;
+        min-width: 0;
+        height: 46px;
+        padding: 0 15px;
+        font-size: 14px;
+        font-family: inherit;
+        color: var(--fg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        outline: none;
+        background: #fbfcfe;
+        transition: border-color .15s, box-shadow .15s, background .15s;
+    }
+    #urlInput:hover { border-color: #cbd5e1; }
+    #urlInput:focus {
+        border-color: var(--accent);
+        background: #fff;
+        box-shadow: 0 0 0 4px var(--accent-soft);
+    }
+    #urlInput::placeholder { color: #a8b3c5; }
+
+    button {
+        font-family: inherit;
+        cursor: pointer;
+        border: 0;
+        font-weight: 600;
+        transition: background .15s, border-color .15s, color .15s,
+                    transform .12s, box-shadow .15s, filter .15s;
+        -webkit-user-select: none;
+        user-select: none;
+        touch-action: manipulation;
+    }
+    button:disabled { cursor: not-allowed; opacity: .65; }
+    button:focus-visible { outline: 3px solid var(--accent-soft); outline-offset: 2px; }
+
+    #btnExtract {
+        height: 46px;
+        padding: 0 24px;
+        font-size: 14.5px;
+        color: #fff;
+        border-radius: var(--radius-md);
+        background: linear-gradient(135deg, #5b7cfa, var(--accent-deep));
+        box-shadow: 0 6px 16px -6px rgba(59, 91, 219, .55);
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+    #btnExtract:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 22px -6px rgba(59, 91, 219, .6);
+        filter: saturate(1.1);
+    }
+    #btnExtract:active:not(:disabled) { transform: translateY(0) scale(.97); }
+
+    .spinner {
+        width: 14px; height: 14px;
+        border: 2px solid rgba(255, 255, 255, .35);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: spin .7s linear infinite;
+        display: none;
+    }
+    #btnExtract.loading .spinner { display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .error {
+        margin-top: 14px;
+        padding: 12px 14px;
+        font-size: 13px;
+        line-height: 1.55;
+        background: var(--danger-bg);
+        border: 1px solid var(--danger-border);
+        color: var(--danger-fg);
+        border-radius: var(--radius-md);
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+        animation: fadeUp .3s cubic-bezier(.2, .8, .3, 1);
+    }
+    .error::before { content: "⚠️"; flex: none; }
+
+    .result {
+        margin-top: 16px;
+        animation: fadeUp .35s cubic-bezier(.2, .8, .3, 1);
+    }
+    @keyframes fadeUp {
+        from { opacity: 0; transform: translateY(8px); }
+        to   { opacity: 1; transform: none; }
+    }
+
+    .result-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    #iconPreview {
+        width: 56px; height: 56px;
+        flex: none;
+        object-fit: contain;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        padding: 4px;
+        /* 棋盘底衬托透明图标 */
+        background: repeating-conic-gradient(#f1f5f9 0 25%, #fff 0 50%) 0 0 / 12px 12px;
+    }
+    .result-url {
+        flex: 1 1 260px;
+        min-width: 0;
+        font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
+        font-size: 12.5px;
+        line-height: 1.6;
+        word-break: break-all;
+        background: var(--code-bg);
+        color: var(--code-fg);
+        border-radius: var(--radius-sm);
+        padding: 12px 14px;
+        box-shadow: inset 0 1px 4px rgba(0, 0, 0, .4);
+    }
+
+    .result-actions {
+        margin-top: 16px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    #btnCopy {
+        height: 38px;
+        padding: 0 18px;
+        font-size: 13px;
+        background: #fff;
+        border: 1.5px solid #1e293b;
+        color: var(--fg);
+        border-radius: var(--radius-sm);
+        box-shadow: 0 3px 10px -2px rgba(15, 23, 42, .45);
+    }
+    #btnCopy:hover:not(:disabled) { background: #f8fafc; transform: translateY(-1px); box-shadow: 0 5px 14px -2px rgba(15, 23, 42, .5); }
+    #btnCopy:active:not(:disabled) { transform: scale(.97); }
+    #btnCopy.copied { border-color: #34d399; color: var(--ok); background: #ecfdf5; box-shadow: 0 3px 10px -2px rgba(5, 150, 105, .35); }
+
+    #linkVisit {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--accent-deep);
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        height: 38px;
+        padding: 0 16px;
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        transition: border-color .15s, background .15s, transform .12s, box-shadow .15s;
+    }
+    #linkVisit:hover {
+        border-color: var(--accent);
+        background: #f5f7ff;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px -4px rgba(59, 91, 219, .35);
+    }
+    #linkVisit:active { transform: scale(.97); }
+
+    #sourceNote { font-size: 12px; color: var(--fg-faint); }
+
+    footer {
+        margin-top: 32px;
+        text-align: center;
+        font-size: 12px;
+        color: var(--fg-faint);
+        line-height: 1.9;
+    }
+
+    .hidden { display: none !important; }
+
+    @media (max-width: 520px) {
+        .card { padding: 16px; border-radius: 14px; }
+        header { margin-bottom: 24px; }
+        header p { font-size: 13px; padding: 5px 12px; }
+        #urlInput { height: 48px; font-size: 16px; } /* ≥16px 防止 iOS 聚焦自动放大 */
+        #urlInput, #btnExtract { border-radius: var(--radius-sm); }
+        #btnExtract { flex: 1 1 100%; justify-content: center; } /* 窄屏按钮独占一行 */
+        #iconPreview { width: 44px; height: 44px; }
+        .result-head, .result-actions { gap: 10px; }
+        body::before, body::after { opacity: .35; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { animation: none !important; transition: none !important; }
+    }
+</style>
+</head>
+<body>
+<main class="container">
+    <header>
+        <h1>网站图标地址提取工具</h1>
+        <p>粘贴网址，服务端抓取并解析 favicon 图标完整地址</p>
+    </header>
+
+    <div class="card">
+        <div class="input-row">
+            <input id="urlInput" type="text" spellcheck="false"
+                   placeholder="粘贴网站地址，如 https://www.github.com" autocomplete="off">
+            <button id="btnExtract"><span class="spinner"></span><span id="btnExtractText">提取</span></button>
+        </div>
+        <div id="errorBox" class="error hidden"></div>
+    </div>
+
+    <div id="resultCard" class="card result hidden">
+        <div class="result-head">
+            <img id="iconPreview" alt="图标预览">
+            <div class="result-url" id="iconUrl"></div>
+        </div>
+        <div class="result-actions">
+            <button id="btnCopy">📋 复制地址</button>
+            <a id="linkVisit" href="#" target="_blank" rel="noopener">在新标签页打开 ↗</a>
+            <span id="sourceNote"></span>
+        </div>
+    </div>
+
+    <footer>
+        网站工具抓取与图标转发由 Cloudflare Pages Functions 同域完成。<br>
+        优先级：页面解析 rel="icon" → 站点原生路径 → 浏览器<br> 本地探测→ 图标缓存（经本站代理，不出 Google 直链）
+    </footer>
+</main>
+
+<script>
+(function() {
+    'use strict';
+
+    var PLACEHOLDER = 'data:image/svg+xml,' + encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48">' +
+        '<rect width="48" height="48" rx="8" fill="#f0f0f0"/>' +
+        '<text x="24" y="30" text-anchor="middle" font-size="20" fill="#bbb">?</text></svg>');
+
+    var input = document.getElementById('urlInput');
+    var btnExtract = document.getElementById('btnExtract');
+    var btnExtractText = document.getElementById('btnExtractText');
+    var errorBox = document.getElementById('errorBox');
+    var resultCard = document.getElementById('resultCard');
+    var iconPreview = document.getElementById('iconPreview');
+    var iconUrl = document.getElementById('iconUrl');
+    var btnCopy = document.getElementById('btnCopy');
+    var linkVisit = document.getElementById('linkVisit');
+    var sourceNote = document.getElementById('sourceNote');
+
+    function showError(msg) {
+        errorBox.textContent = msg;
+        errorBox.classList.remove('hidden');
+    }
+    function clearError() { errorBox.classList.add('hidden'); }
+
+    function setLoading(on) {
+        btnExtract.disabled = on;
+        btnExtract.classList.toggle('loading', on);
+        btnExtractText.textContent = on ? '提取中…' : '提取';
+    }
+
+    function showResult(data) {
+        iconPreview.onerror = function() { iconPreview.src = PLACEHOLDER; };
+        iconPreview.src = data.preview;   /* 预览地址（原生或本站代理） */
+        iconUrl.textContent = data.url;   /* 复制地址：始终为国内可达的原生地址或本站代理地址 */
+        linkVisit.href = data.preview;
+        sourceNote.textContent = data.source ? '来源：' + data.source : '';
+        resultCard.classList.remove('hidden');
+    }
+
+    function copyText(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            return navigator.clipboard.writeText(text).then(function() { return true; }, function() { return legacyCopy(text); });
+        }
+        return Promise.resolve(legacyCopy(text));
+    }
+    function legacyCopy(text) {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = false;
+        try { ok = document.execCommand('copy'); } catch (e) {}
+        document.body.removeChild(ta);
+        return ok;
+    }
+
+    /* ---------- 浏览器直探原生路径（借鉴 Dashboard 做法） ---------- */
+    /* <img> 加载不受 CORS 限制；国内浏览器可达目标站时（CF 反而可能被对方 WAF 拦），
+       依次探测 完整域名+主域名 × 常见图标路径，命中即得到站点原生地址 */
+
+    function rootDomain(h) {
+        var m = h.toLowerCase().match(/([a-z0-9-]+\.(?:com|net|org|gov|edu|ac|co)\.[a-z]{2})$/);
+        if (m) return m[1];
+        m = h.toLowerCase().match(/([a-z0-9-]+\.[a-z]{2,})$/);
+        return m ? m[1] : h;
+    }
+
+    function probeImg(url) {
+        return new Promise(function(resolve) {
+            var img = new Image();
+            var done = false;
+            function finish(ok) {
+                if (done) return;
+                done = true;
+                img.onload = img.onerror = null;
+                resolve(ok);
+            }
+            var t = setTimeout(function() { finish(false); }, 6000);
+            img.onload = function() { clearTimeout(t); finish(true); };
+            img.onerror = function() { clearTimeout(t); finish(false); };
+            img.src = url;
+        });
+    }
+
+    function browserProbeIcon(target) {
+        var origins = [target.origin];
+        var rd = rootDomain(target.hostname);
+        if (rd !== target.hostname) origins.push('https://' + rd);
+        var paths = ['/favicon.ico', '/favicon.png', '/apple-touch-icon.png'];
+        var candidates = [];
+        origins.forEach(function(o) { paths.forEach(function(p) { candidates.push(o + p); }); });
+        return Promise.all(candidates.map(probeImg)).then(function(results) {
+            for (var i = 0; i < candidates.length; i++) {
+                if (results[i]) return candidates[i];
+            }
+            return '';
+        });
+    }
+
+    /* ---------- 输入规范化：自动补协议，防止重复叠加 ---------- */
+    function normalizeUrl(text) {
+        var s = text.replace(/\s+/g, '');              /* 去除首尾及内部空白（粘贴带入的空格/换行） */
+        s = s.replace(/^(https?):\/(?!\/)/i, '$1://'); /* 修正手误 http:/x → http://x */
+        if (/^https?:\/\//i.test(s)) { return s; }     /* 已带协议，不额外处理 */
+        if (s.indexOf('//') === 0) { return 'https:' + s; } /* //x → https://x */
+        return 'https://' + s;                         /* 裸域名自动拼接 https:// */
+    }
+
+    function extract() {
+        clearError();
+        resultCard.classList.add('hidden');
+
+        var raw = input.value.trim();
+        if (!raw) { showError('请输入网址'); return; }
+
+        var target;
+        try {
+            target = new URL(normalizeUrl(raw));
+        } catch (e) {
+            showError('网址格式不正确，请检查后重试');
+            return;
+        }
+
+        setLoading(true);
+
+        fetch('/api/extract?url=' + encodeURIComponent(target.href))
+            .then(function(res) {
+                return res.json().catch(function() { return null; }).then(function(data) { return { res: res, data: data }; });
+            })
+            .then(function(r) {
+                var data = r.data && r.data.ok ? r.data : null;
+
+                /* 服务端拿到原生地址 → 直接采用 */
+                if (data && !data.fallback) { showResult(data); return null; }
+
+                /* 服务端只有图标缓存兜底 / 完全失败 → 浏览器先直探站点原生路径 */
+                return browserProbeIcon(target).then(function(nativeUrl) {
+                    if (nativeUrl) {
+                        showResult({ url: nativeUrl, preview: nativeUrl, source: '本地探测 ' + nativeUrl.replace(/^https?:\/\//, '') });
+                        return null;
+                    }
+                    if (data) { showResult(data); return null; } /* 接受已代理化的兜底结果 */
+                    showError((r.data && r.data.error) ? r.data.error : '未找到图标，请检查网址是否正确');
+                });
+            })
+            .catch(function() {
+                showError('请求失败，请检查网络后重试');
+            })
+            .then(function() { setLoading(false); });
+    }
+
+    btnExtract.addEventListener('click', extract);
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') extract();
+    });
+
+    btnCopy.addEventListener('click', function() {
+        copyText(iconUrl.textContent).then(function(ok) {
+            if (!ok) { showError('复制失败，请手动选中文本复制'); return; }
+            clearError();
+            btnCopy.textContent = '已复制 ✓';
+            btnCopy.classList.add('copied');
+            setTimeout(function() {
+                btnCopy.textContent = '📋 复制地址';
+                btnCopy.classList.remove('copied');
+            }, 1500);
+        });
+    });
+})();
+</script>
+<script>
+    /* ==================== 网页防护 ==================== */
+    (function() {
+        'use strict';
+        /* 拦截快捷键：F12、Ctrl+S、Ctrl+U、Ctrl+Shift+I/J/C 等 */
+        document.addEventListener('keydown', function(e) {
+            var key = e.key || '';
+            var blocked = false;
+            if (key === 'F12') { blocked = true; }
+            else if ((e.ctrlKey || e.metaKey) && !e.altKey && (key === 's' || key === 'S' || key === 'u' || key === 'U')) { blocked = true; }
+            else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (key === 'I' || key === 'i' || key === 'J' || key === 'j' || key === 'C' || key === 'c')) { blocked = true; }
+            if (blocked) { e.preventDefault(); e.stopPropagation(); return false; }
+        }, true);
+        /* 屏蔽右键菜单 */
+        document.addEventListener('contextmenu', function(e) { e.preventDefault(); }, true);
+        /* 反调试：debugger 检测循环（打开控制台时触发中断） */
+        function antiDebug() {
+            setInterval(function() {
+                var before = Date.now();
+                debugger;
+                if (Date.now() - before > 100) { document.body.innerHTML = ''; }
+            }, 2000);
+        }
+        antiDebug();
+    })();
+</script>
+</body>
+</html>
