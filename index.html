@@ -36,7 +36,8 @@
     body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
                      "Hiragino Sans GB", "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
-        background: var(--bg) url('static/img/background.webp') no-repeat center center / cover;
+        /* body 保持基础纯色，压缩图模糊层与高清层由下层 div 承载 */
+        background: var(--bg);
         color: var(--fg);
         min-height: 100vh;
         display: flex;
@@ -66,6 +67,29 @@
         background: rgba(129, 140, 248, .14);
         bottom: -140px; left: -120px;
     }
+
+    /* 压缩图模糊层：初始立即显示，高斯模糊实现毛玻璃效果 */
+    #bgBlur {
+        position: fixed;
+        inset: 0;
+        z-index: -2;
+        background: url('static/img/background.webp') no-repeat center center / cover;
+        filter: blur(10px);
+        transform: scale(1.1);          /* 放大避免模糊后边缘露底色 */
+        pointer-events: none;
+    }
+
+    /* 高清背景层：默认隐藏，高清图加载完成后淡入，不阻塞页面交互 */
+    #bgLayer {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        background: var(--bg) no-repeat center center / cover;
+        opacity: 0;
+        transition: opacity .8s ease;
+        pointer-events: none;
+    }
+    #bgLayer.loaded { opacity: 1; }
 
     .container { width: 100%; max-width: 620px; }
 
@@ -285,7 +309,7 @@
         display: block;
         width: 140%;                    /* 占满模块宽度 */
         max-width: 700px;               /* 限制最大宽度，避免过大 */
-        height: ;
+        height: auto;                   /* 保持纵横比，防止拉伸变形 */
         filter: drop-shadow(0 4px 8px rgba(0,0,0,0.1));
     }
 
@@ -300,6 +324,7 @@
         #iconPreview { width: 44px; height: 44px; }
         .result-head, .result-actions { gap: 10px; }
         body::before, body::after { opacity: .35; }
+        #bgBlur { filter: blur(6px); }  /* 移动端降低模糊，兼顾性能 */
         .snake-module {
             min-height: 160px;
             padding: 20px 15px;
@@ -313,6 +338,10 @@
 </style>
 </head>
 <body>
+<!-- 压缩图模糊层（毛玻璃效果，初始立即显示） -->
+<div id="bgBlur" aria-hidden="true"></div>
+<!-- 高清背景层（background1.webp 异步加载完成后淡入） -->
+<div id="bgLayer" aria-hidden="true"></div>
 <main class="container">
     <header>
         <h1>网站图标地址提取工具</h1>
@@ -514,6 +543,24 @@
             }, 1500);
         });
     });
+})();
+</script>
+
+<!-- 背景图加载：后台异步加载高清图，不阻塞页面交互，加载完成后淡入 -->
+<script>
+(function() {
+    'use strict';
+    var bg = document.getElementById('bgLayer');
+    if (!bg) return;
+
+    // 后台异步预加载高清图，成功后在 bgLayer 上平滑淡入
+    var img = new Image();
+    img.onload = function() {
+        bg.style.backgroundImage = "url('static/img/background1.webp')";
+        bg.classList.add('loaded');
+    };
+    // 加载失败则保持基础纯色背景，不影响页面
+    img.src = 'static/img/background1.webp';
 })();
 </script>
 
